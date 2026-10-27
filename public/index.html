@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Transformez vos idées en contenus de marque prêts à être édités."
+    />
+    <meta name="theme-color" content="#f6f5f0" />
+    <title>Studio — création de contenu</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <main id="auth-view" class="auth-shell">
+      <section class="auth-brand">
+        <a class="brand-lockup" href="/" aria-label="Studio, accueil">
+          <span class="brand-mark">s.</span>
+          <span>studio<span class="brand-dot">.</span></span>
+        </a>
+        <div class="auth-pitch">
+          <span class="eyebrow">VOTRE ATELIER DE CONTENU</span>
+          <h1>De l’idée<br />à l’impact.</h1>
+          <p>
+            Votre univers de marque, vos idées, un studio pour les transformer
+            en contenus qui vous ressemblent.
+          </p>
+          <div class="pitch-note">
+            <span class="note-icon">✳</span>
+            <span>Créez avec intention. Publiez à votre rythme.</span>
+          </div>
+        </div>
+        <span class="auth-footnote">Un espace créatif, rien qu’à vous.</span>
+      </section>
+      <section class="auth-panel">
+        <div class="auth-card">
+          <div class="auth-tabs" role="tablist" aria-label="Accès au compte">
+            <button class="auth-tab active" data-auth-tab="login" role="tab">
+              Connexion
+            </button>
+            <button class="auth-tab" data-auth-tab="signup" role="tab">
+              Créer un compte
+            </button>
+          </div>
+          <div id="auth-form-container"></div>
+          <div id="auth-message" class="form-message" aria-live="polite"></div>
+        </div>
+        <p class="auth-legal">
+          En continuant, vous acceptez nos conditions d’utilisation et notre
+          politique de confidentialité.
+        </p>
+      </section>
+    </main>
+
+    <div id="app-view" class="app-shell hidden">
+      <aside class="sidebar">
+        <a class="brand-lockup sidebar-brand" href="#" data-page="home">
+          <span class="brand-mark">s.</span>
+          <span>studio<span class="brand-dot">.</span></span>
+        </a>
+        <div class="workspace-label">ESPACE CRÉATIF</div>
+        <nav class="main-nav" aria-label="Navigation principale">
+          <button class="nav-link active" data-page="home">
+            <span class="nav-icon">⌂</span> Vue d’ensemble
+          </button>
+          <button class="nav-link" data-page="create">
+            <span class="nav-icon">✳</span> Créer un contenu
+          </button>
+          <button class="nav-link" data-page="library">
+            <span class="nav-icon">▤</span> Bibliothèque
+          </button>
+          <button class="nav-link" data-page="calendar">
+            <span class="nav-icon">▦</span> Calendrier
+          </button>
+          <button class="nav-link mobile-nav-only" data-page="brand">
+            <span class="nav-icon">◈</span> Ma marque
+          </button>
+          <button class="nav-link mobile-nav-only" data-page="settings">
+            <span class="nav-icon">⚙</span> Paramètres
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="plan-card">
+            <div class="plan-heading">
+              <span>Votre quota</span><span class="plan-spark">✳</span>
+            </div>
+            <div class="quota-value">
+              <strong id="sidebar-quota">—</strong>
+              <span>générations restantes</span>
+            </div>
+            <div class="quota-track"><span id="quota-progress"></span></div>
+            <button id="upgrade-button" class="text-button">
+              Découvrir les offres ↗
+            </button>
+          </div>
+          <button class="nav-link" data-page="brand">
+            <span class="nav-icon">◈</span> Ma marque
+          </button>
+          <button class="nav-link" data-page="settings">
+            <span class="nav-icon">⚙</span> Paramètres
+          </button>
+          <div class="user-chip">
+            <span id="user-avatar" class="avatar">S</span>
+            <span id="user-email" class="user-email">—</span>
+            <button
+              id="logout-button"
+              class="icon-button"
+              title="Déconnexion"
+              aria-label="Déconnexion"
+            >
+              ↗
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main-column">
+        <header class="topbar">
+          <div class="breadcrumb">
+            <span>Votre espace</span><span class="crumb-sep">/</span
+            ><strong id="page-title">Vue d’ensemble</strong>
+          </div>
+          <div class="topbar-actions">
+            <span id="today-label" class="today-label"></span>
+            <button class="button button-dark button-small" data-page="create">
+              ＋ Nouveau contenu
+            </button>
+          </div>
+        </header>
+
+        <section id="page-home" class="page-section">
+          <div class="welcome-row">
+            <div>
+              <span class="eyebrow">VOTRE STUDIO, VOTRE RYTHME</span>
+              <h1>
+                Bonjour, <span id="welcome-name">créateur</span>
+                <span class="wave">✳</span>
+              </h1>
+              <p class="subheading">
+                Une bonne idée mérite un contenu à sa hauteur.
+              </p>
+            </div>
+            <button class="button button-dark" data-page="create">
+              Créer un contenu <span>↗</span>
+            </button>
+          </div>
+          <div class="stats-grid">
+            <article class="stat-card">
+              <span class="stat-label">Contenus sauvegardés</span>
+              <strong id="stat-content">0</strong>
+              <span class="stat-detail">dans votre bibliothèque</span>
+              <span class="stat-icon mint">▤</span>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">À venir</span>
+              <strong id="stat-scheduled">0</strong>
+              <span class="stat-detail">contenus planifiés</span>
+              <span class="stat-icon peach">▦</span>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Ce mois-ci</span>
+              <strong id="stat-quota">—</strong>
+              <span class="stat-detail">générations restantes</span>
+              <span class="stat-icon lavender">✳</span>
+            </article>
+          </div>
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">VOTRE ESPACE</span>
+              <h2>Reprendre le fil</h2>
+            </div>
+            <button class="text-button" data-page="library">
+              Voir la bibliothèque ↗
+            </button>
+          </div>
+          <div id="recent-content" class="content-grid"></div>
+          <div id="home-empty" class="empty-state hidden">
+            <span class="empty-illustration">✳</span>
+            <h3>Tout commence par une idée.</h3>
+            <p>Créez votre premier contenu et retrouvez-le ici.</p>
+            <button class="button button-dark" data-page="create">
+              Imaginer un contenu ↗
+            </button>
+          </div>
+        </section>
+
+        <section id="page-create" class="page-section hidden">
+          <div class="page-intro">
+            <span class="eyebrow">LE LABORATOIRE À IDÉES</span>
+            <h1>Donnez vie à votre idée<span class="brand-dot">.</span></h1>
+            <p>Un brief clair, votre univers de marque, et on commence.</p>
+          </div>
+          <div class="create-layout">
+            <form id="generation-form" class="panel form-panel">
+              <div class="panel-heading">
+                <span class="step-badge">01</span>
+                <div>
+                  <h2>Le point de départ</h2>
+                  <p>Quelques mots suffisent pour commencer.</p>
+                </div>
+              </div>
+              <label class="field-label" for="generation-subject"
+                >Votre idée <span class="required">*</span></label
+              >
+              <textarea
+                id="generation-subject"
+                name="subject"
+                rows="4"
+                maxlength="1000"
+                placeholder="Ex. Les 3 erreurs à éviter quand on aménage un petit salon…"
+                required
+              ></textarea>
+              <div class="field-meta">
+                <span>Une idée, un conseil, une histoire…</span
+                ><span id="subject-count">0 / 1000</span>
+              </div>
+              <label class="field-label" for="generation-format"
+                >Format souhaité <span class="required">*</span></label
+              >
+              <select id="generation-format" name="format" required>
+                <option value="">Choisir un format</option>
+                <option value="reel">Reel / TikTok</option>
+                <option value="video">Vidéo courte</option>
+                <option value="carousel">Carrousel</option>
+                <option value="post">Post statique</option>
+                <option value="story">Stories</option>
+                <option value="newsletter">Newsletter</option>
+                <option value="custom">Autre format</option>
+              </select>
+              <label class="field-label" for="generation-project"
+                >Projet <span class="optional">(facultatif)</span></label
+              >
+              <select id="generation-project" name="projectId">
+                <option value="">Sans projet</option>
+              </select>
+              <button
+                id="generate-button"
+                class="button button-dark button-wide"
+                type="submit"
+              >
+                <span>✳</span> Générer mon contenu
+              </button>
+              <p class="fine-print">
+                Votre profil de marque et vos consignes sont pris en compte.
+              </p>
+            </form>
+            <div id="generation-result" class="result-column">
+              <div id="result-placeholder" class="result-placeholder">
+                <div class="placeholder-art">
+                  <span>✳</span><i>✳</i><b>✳</b>
+                </div>
+                <h2>Votre prochain coup de cœur<br />commence ici.</h2>
+                <p>
+                  Votre contenu apparaîtra ici. Vous pourrez tout modifier avant
+                  de le sauvegarder.
+                </p>
+                <div class="result-pills">
+                  <span>Hook</span><span>Script</span><span>CTA</span
+                  ><span>Captions</span>
+                </div>
+              </div>
+              <div
+                id="result-loading"
+                class="loading-card hidden"
+                role="status"
+              >
+                <span class="loading-orb">✳</span
+                ><strong>On façonne votre idée…</strong
+                ><span
+                  >Votre univers de marque est en train d’inspirer la
+                  suite.</span
+                >
+                <div class="loading-bar"><i></i></div>
+              </div>
+              <div
+                id="result-error"
+                class="inline-error hidden"
+                role="alert"
+              ></div>
+              <form id="result-editor" class="panel result-editor hidden">
+                <div class="result-topline">
+                  <span class="eyebrow">VOTRE CONTENU, À VOUS</span
+                  ><span id="result-format" class="format-tag">REEL</span>
+                </div>
+                <div class="result-fields">
+                  <label class="field-label" for="result-hook">Le hook</label
+                  ><textarea
+                    id="result-hook"
+                    rows="2"
+                    maxlength="4000"
+                    required
+                  ></textarea>
+                  <label class="field-label" for="result-script"
+                    >Le script</label
+                  ><textarea
+                    id="result-script"
+                    rows="7"
+                    maxlength="10000"
+                    required
+                  ></textarea>
+                  <label class="field-label" for="result-cta"
+                    >L’appel à l’action</label
+                  ><textarea
+                    id="result-cta"
+                    rows="2"
+                    maxlength="2000"
+                    required
+                  ></textarea>
+                  <label class="field-label"
+                    >Suggestions de caption
+                    <span class="optional">(modifiables)</span></label
+                  >
+                  <div id="caption-fields" class="caption-fields"></div>
+                </div>
+                <div id="schedule-fields" class="schedule-fields hidden">
+                  <label class="field-label" for="result-platform"
+                    >Plateforme</label
+                  >
+                  <select id="result-platform">
+                    <option value="">Choisir une plateforme</option>
+                    <option>Instagram</option>
+                    <option>TikTok</option>
+                    <option>YouTube</option>
+                    <option>LinkedIn</option>
+                    <option>Pinterest</option>
+                    <option>Facebook</option>
+                  </select>
+                  <label class="field-label" for="result-date"
+                    >Date et heure</label
+                  >
+                  <input id="result-date" type="datetime-local" />
+                  <p class="fine-print">
+                    La planification ne publie pas automatiquement votre
+                    contenu.
+                  </p>
+                </div>
+                <div class="editor-actions">
+                  <button
+                    id="schedule-toggle"
+                    class="button button-light"
+                    type="button"
+                  >
+                    ＋ Planifier
+                  </button>
+                  <button
+                    id="save-content"
+                    class="button button-dark"
+                    type="submit"
+                  >
+                    Sauvegarder le brouillon ↗
+                  </button>
+                </div>
+                <p
+                  id="editor-status"
+                  class="editor-status"
+                  aria-live="polite"
+                ></p>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-library" class="page-section hidden">
+          <div class="page-intro">
+            <span class="eyebrow">VOTRE BANQUE D’IDÉES</span>
+            <h1>La bibliothèque<span class="brand-dot">.</span></h1>
+            <p>Tous vos contenus, au même endroit et à votre façon.</p>
+          </div>
+          <div class="filter-bar panel">
+            <label
+              ><span>Projet</span
+              ><select id="filter-project">
+                <option value="">Tous les projets</option>
+              </select></label
+            >
+            <label
+              ><span>Statut</span
+              ><select id="filter-status">
+                <option value="">Tous les statuts</option>
+                <option value="draft">Brouillon</option>
+                <option value="scheduled">Planifié</option>
+                <option value="published">Publié</option>
+                <option value="archived">Archivé</option>
+              </select></label
+            >
+            <label
+              ><span>Plateforme</span
+              ><select id="filter-platform">
+                <option value="">Toutes</option>
+                <option>Instagram</option>
+                <option>TikTok</option>
+                <option>YouTube</option>
+                <option>LinkedIn</option>
+                <option>Pinterest</option>
+                <option>Facebook</option>
+              </select></label
+            >
+            <label><span>Du</span><input id="filter-from" type="date" /></label>
+            <label><span>Au</span><input id="filter-to" type="date" /></label>
+            <button
+              id="clear-filters"
+              class="button button-light"
+              type="button"
+            >
+              Effacer
+            </button>
+          </div>
+          <div id="library-count" class="list-caption"></div>
+          <div id="library-content" class="content-grid library-grid"></div>
+          <div id="library-empty" class="empty-state hidden">
+            <span class="empty-illustration">▤</span>
+            <h3>La page est encore blanche.</h3>
+            <p>
+              Créez un contenu ou ajustez les filtres pour retrouver vos idées.
+            </p>
+            <button class="button button-dark" data-page="create">
+              Créer un contenu ↗
+            </button>
+          </div>
+        </section>
+
+        <section id="page-calendar" class="page-section hidden">
+          <div class="page-intro">
+            <span class="eyebrow">LE TEMPS BIEN EMPLOYÉ</span>
+            <h1>Votre calendrier<span class="brand-dot">.</span></h1>
+            <p>
+              Visualisez vos contenus planifiés. Aucune publication n’est
+              déclenchée depuis cet agenda.
+            </p>
+          </div>
+          <div class="calendar-controls panel">
+            <label
+              ><span>Du</span><input id="calendar-from" type="date"
+            /></label>
+            <label><span>Au</span><input id="calendar-to" type="date" /></label>
+            <button id="load-calendar" class="button button-dark" type="button">
+              Afficher
+            </button>
+          </div>
+          <div id="calendar-content" class="content-grid library-grid"></div>
+          <div id="calendar-empty" class="empty-state hidden">
+            <span class="empty-illustration">▦</span>
+            <h3>Votre agenda respire.</h3>
+            <p>Planifiez un contenu depuis l’éditeur pour le retrouver ici.</p>
+          </div>
+        </section>
+
+        <section id="page-brand" class="page-section hidden">
+          <div class="page-intro">
+            <span class="eyebrow">VOTRE SIGNATURE CRÉATIVE</span>
+            <h1>Le profil de marque<span class="brand-dot">.</span></h1>
+            <p>
+              Quelques repères pour que chaque génération vous ressemble
+              davantage.
+            </p>
+          </div>
+          <form id="brand-form" class="panel settings-panel">
+            <div class="settings-grid">
+              <label class="field-label"
+                >Nom de marque <span class="required">*</span
+                ><input
+                  name="brandName"
+                  maxlength="120"
+                  required
+                  placeholder="Ex. Atelier Nord"
+              /></label>
+              <label class="field-label"
+                >Niche <span class="required">*</span
+                ><input
+                  name="niche"
+                  maxlength="200"
+                  required
+                  placeholder="Ex. décoration responsable"
+              /></label>
+              <label class="field-label"
+                >Audience <span class="required">*</span
+                ><input
+                  name="audience"
+                  maxlength="500"
+                  required
+                  placeholder="À qui vous adressez-vous ?"
+              /></label>
+              <label class="field-label"
+                >Ton <span class="required">*</span
+                ><input
+                  name="tone"
+                  maxlength="200"
+                  required
+                  placeholder="Ex. chaleureux, direct, expert"
+              /></label>
+              <label class="field-label"
+                >Langue <span class="required">*</span
+                ><select name="language" required>
+                  <option value="">Choisir une langue</option>
+                  <option value="Français">Français</option>
+                  <option value="English">English</option>
+                  <option value="Español">Español</option>
+                  <option value="العربية">العربية</option>
+                  <option value="Autre">Autre</option>
+                </select></label
+              >
+              <label class="field-label field-full"
+                >Consignes de création
+                <span class="optional"
+                  >(facultatif, réutilisé à chaque génération)</span
+                ><textarea
+                  name="instructions"
+                  rows="5"
+                  maxlength="4000"
+                  placeholder="Mots à privilégier, sujets à éviter, longueur, style…"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <span
+                id="brand-status"
+                class="editor-status"
+                aria-live="polite"
+              ></span
+              ><button class="button button-dark" type="submit">
+                Enregistrer mon profil ↗
+              </button>
+            </div>
+          </form>
+          <div class="project-panel panel">
+            <div class="section-heading compact">
+              <div>
+                <span class="eyebrow">ORGANISATION</span>
+                <h2>Mes projets</h2>
+              </div>
+            </div>
+            <form id="project-form" class="project-form">
+              <label class="sr-only" for="project-name">Nom du projet</label
+              ><input
+                id="project-name"
+                maxlength="120"
+                placeholder="Nommer un nouveau projet…"
+                required
+              /><button class="button button-light" type="submit">
+                ＋ Ajouter
+              </button>
+            </form>
+            <div id="project-list" class="project-list"></div>
+          </div>
+        </section>
+
+        <section id="page-settings" class="page-section hidden">
+          <div class="page-intro">
+            <span class="eyebrow">VOTRE ESPACE, VOS RÈGLES</span>
+            <h1>Paramètres<span class="brand-dot">.</span></h1>
+            <p>Gérez votre abonnement et vos données personnelles.</p>
+          </div>
+          <div class="settings-card panel">
+            <div class="settings-card-icon">✳</div>
+            <div class="settings-card-copy">
+              <span class="eyebrow">VOTRE FORMULE</span>
+              <h2>Un peu plus d’élan ?</h2>
+              <p id="subscription-status">
+                Consultez votre statut et gérez votre abonnement en toute
+                sécurité via Stripe.
+              </p>
+            </div>
+            <div class="settings-card-actions">
+              <button id="billing-button" class="button button-dark">
+                Gérer l’abonnement ↗</button
+              ><button id="portal-button" class="text-button">
+                Ouvrir mon portail client
+              </button>
+            </div>
+          </div>
+          <div class="settings-card danger-card panel">
+            <div class="settings-card-icon danger-icon">!</div>
+            <div class="settings-card-copy">
+              <span class="eyebrow">ZONE DE SUPPRESSION</span>
+              <h2>Supprimer mon compte</h2>
+              <p>
+                La suppression efface vos contenus, projets et profil de marque.
+                Cette action est irréversible.
+              </p>
+            </div>
+            <button id="delete-account-button" class="button button-danger">
+              Supprimer mon compte
+            </button>
+          </div>
+          <div class="settings-card panel">
+            <div class="settings-card-icon">↗</div>
+            <div class="settings-card-copy">
+              <span class="eyebrow">VOTRE SESSION</span>
+              <h2>Terminer votre session</h2>
+              <p>
+                Vous pourrez vous reconnecter à tout moment avec votre adresse
+                e-mail.
+              </p>
+            </div>
+            <button id="settings-logout-button" class="button button-light">
+              Se déconnecter
+            </button>
+          </div>
+        </section>
+
+        <footer class="app-footer">
+          <span>Fait avec intention <span class="brand-dot">✳</span></span
+          ><span>Votre espace créatif privé</span>
+        </footer>
+      </div>
+    </div>
+    <dialog id="delete-dialog" class="modal">
+      <form id="delete-form" method="dialog">
+        <button
+          class="modal-close"
+          type="button"
+          data-close-dialog
+          aria-label="Fermer"
+        >
+          ×
+        </button>
+        <span class="eyebrow">DERNIÈRE ÉTAPE</span>
+        <h2>Vous partez déjà ?</h2>
+        <p>
+          Confirmez la suppression en saisissant <strong>DELETE</strong> et
+          votre mot de passe. Vos données applicatives seront effacées.
+        </p>
+        <label class="field-label" for="delete-confirmation">Confirmation</label
+        ><input id="delete-confirmation" required autocomplete="off" />
+        <label class="field-label" for="delete-password"
+          >Mot de passe actuel</label
+        ><input
+          id="delete-password"
+          type="password"
+          required
+          autocomplete="current-password"
+        />
+        <div
+          id="delete-error"
+          class="form-message error"
+          aria-live="polite"
+        ></div>
+        <button class="button button-danger button-wide" type="submit">
+          Supprimer définitivement
+        </button>
+      </form>
+    </dialog>
+  </body>
+</html>
