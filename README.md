@@ -44,6 +44,38 @@ paiement. Les idées et le profil de marque sont envoyés au fournisseur IA
 configuré. Configurez les fournisseurs et informez vos utilisateurs avant la
 mise en production.
 
+## Déploiement de staging sur Render
+
+Le fichier `render.yaml` configure un service Web Node.js 24 en région
+Frankfurt, avec déploiement automatique de `main` et un disque persistant
+monté sur `/var/data` pour la base SQLite. Le disque nécessite une instance
+Render payante ; ne remplacez pas ce stockage par le système de fichiers
+éphémère d’une instance gratuite.
+
+Pour créer le staging, connectez le dépôt GitHub à Render avec **New +
+Blueprint**, puis sélectionnez le dépôt. Après la création, renseignez dans
+les variables d’environnement Render :
+
+- `APP_BASE_URL` : URL HTTPS attribuée au service, par exemple
+  `https://ai-content-studio-staging.onrender.com`.
+- `CORS_ORIGINS` : origines Web/Expo Web autorisées, séparées par des virgules ;
+  ne renseignez que les origines réellement utilisées.
+- `RESEND_API_KEY` et `EMAIL_FROM` : projet et expéditeur de test Resend.
+- `OPENAI_API_KEY` : clé de génération dédiée au staging.
+- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` et `STRIPE_WEBHOOK_SECRET` :
+  identifiants Stripe en mode test. Configurez l’URL du webhook Stripe sur
+  `https://<URL-DU-SERVICE>/billing/webhook` et abonnez-le aux événements
+  `checkout.session.completed`, `customer.subscription.created`,
+  `customer.subscription.updated` et `customer.subscription.deleted`.
+
+Les valeurs déclarées avec `sync: false` sont saisies directement dans Render ;
+ne les ajoutez jamais au dépôt. Une fois les variables configurées, déclenchez
+un déploiement, vérifiez l’URL de santé `/`, puis testez l’inscription par
+email, la génération IA et le checkout Stripe en mode test. Configurez aussi
+une sauvegarde hors instance du fichier SQLite avant d’utiliser des données
+importantes : le disque persistant protège des redémarrages, mais ne remplace
+pas une stratégie de sauvegarde.
+
 ## Interface web
 
 L’interface légère est servie par NestJS et ne nécessite aucune étape de build
