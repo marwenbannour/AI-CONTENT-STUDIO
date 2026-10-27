@@ -40,21 +40,16 @@ export class AuthService {
     const passwordHash = await this.hashPassword(password);
 
     try {
-      this.database.connection
-        .prepare(
-          `INSERT INTO users (id, email, password_hash, email_verified, created_at)
-           VALUES (?, ?, ?, 0, ?)`,
-        )
-        .run(
-          userId,
-          email.trim().toLowerCase(),
-          passwordHash,
-          now.toISOString(),
-        );
+      await this.database.query(
+        `INSERT INTO users (id, email, password_hash, email_verified, created_at)
+         VALUES (?, ?, ?, 0, ?)`,
+        [userId, email.trim().toLowerCase(), passwordHash, now.toISOString()],
+      );
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message.includes('UNIQUE constraint failed: users.email')
+        (error.message.includes('UNIQUE constraint failed: users.email') ||
+          ('code' in error && error.code === '23505'))
       ) {
         throw new ConflictException(
           'Cette adresse e-mail ne peut pas être utilisée pour créer un compte.',
@@ -63,7 +58,7 @@ export class AuthService {
       throw error;
     }
 
-    this.saveEmailToken(userId, token, 'verify', now);
+    await this.saveEmailToken(userId, token, 'verify', now);
     try {
       await this.sendEmail(
         email.trim(),
@@ -71,9 +66,7 @@ export class AuthService {
         `Pour vérifier votre compte, envoyez une requête POST à /auth/verify-email avec le JSON {"token":"${token}"}.`,
       );
     } catch (error) {
-      this.database.connection
-        .prepare('DELETE FROM users WHERE id = ?')
-        .run(userId);
+      await this.database.query('DELETE FROM users WHERE id = ?', [userId]);
       throw error;
     }
     return {
@@ -86,23 +79,21 @@ export class AuthService {
     sessionToken: string;
   }> {
     const tokenHash = this.hashToken(token);
-    const database = this.database.connection;
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      const emailToken = database
-        .prepare(
-          `SELECT user_id FROM email_tokens
-           WHERE token_hash = ? AND purpose = 'verify' AND expires_at > ?`,
-        )
-        .get(tokenHash, new Date().toISOString());
+    return this.database.transaction(async (database) => {
+      const { rows: [emailToken] } = await database.query(
+        `SELECT user_id FROM email_tokens
+         WHERE token_hash = ? AND purpose = 'verify' AND expires_at > ?`,
+        [tokenHash, new Date().toISOString()],
+      );
       if (!emailToken || typeof emailToken.user_id !== 'string') {
         throw new UnauthorizedException(
           'Le lien de vérification est invalide ou expiré.',
         );
       }
-      const user = database
-        .prepare('SELECT id, email FROM users WHERE id = ?')
-        .get(emailToken.user_id);
+      const { rows: [user] } = await database.query(
+        'SELECT id, email FROM users WHERE id = ?',
+        [emailToken.user_id],
+      );
       if (
         !user ||
         typeof user.id !== 'string' ||
@@ -112,22 +103,19 @@ export class AuthService {
           'Le compte associé à ce lien est indisponible.',
         );
       }
-      database
-        .prepare('UPDATE users SET email_verified = 1 WHERE id = ?')
-        .run(user.id);
-      database
-        .prepare('DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?')
-        .run(user.id, 'verify');
-      const sessionToken = this.createSession(user.id);
-      database.exec('COMMIT');
+      await database.query('UPDATE users SET email_verified = 1 WHERE id = ?', [
+        user.id,
+      ]);
+      await database.query(
+        'DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?',
+        [user.id, 'verify'],
+      );
+      const sessionToken = await this.createSession(user.id, database);
       return {
         user: { id: user.id, email: user.email },
         sessionToken,
       };
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   async signIn(body: JsonObject): Promise<{
@@ -140,12 +128,11 @@ export class AuthService {
         'Adresse e-mail ou mot de passe incorrect.',
       );
     }
-    const user = this.database.connection
-      .prepare(
-        `SELECT id, email, password_hash, email_verified
-         FROM users WHERE email = ? COLLATE NOCASE`,
-      )
-      .get(email.trim());
+    const { rows: [user] } = await this.database.query(
+      `SELECT id, email, password_hash, email_verified
+       FROM users WHERE LOWER(email) = LOWER(?)`,
+      [email.trim()],
+    );
     if (
       !user ||
       typeof user.id !== 'string' ||
@@ -157,14 +144,14 @@ export class AuthService {
         'Adresse e-mail ou mot de passe incorrect.',
       );
     }
-    if (user.email_verified !== 1) {
+    if (Number(user.email_verified) !== 1) {
       throw new UnauthorizedException(
         'Vérifiez votre adresse e-mail avant de vous connecter.',
       );
     }
     return {
       user: { id: user.id, email: user.email },
-      sessionToken: this.createSession(user.id),
+      sessionToken: await this.createSession(user.id),
     };
   }
 
@@ -172,13 +159,14 @@ export class AuthService {
     this.requireMailer();
     const email = body.email;
     if (validEmail(email)) {
-      const user = this.database.connection
-        .prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE')
-        .get(email.trim());
+      const { rows: [user] } = await this.database.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER(?)',
+        [email.trim()],
+      );
       if (user && typeof user.id === 'string') {
         const now = new Date();
         const token = this.newToken();
-        this.saveEmailToken(user.id, token, 'reset', now);
+        await this.saveEmailToken(user.id, token, 'reset', now);
         await this.sendEmail(
           email.trim(),
           'Réinitialisez votre mot de passe',
@@ -201,51 +189,44 @@ export class AuthService {
     }
     const password = this.password(body.password);
     const passwordHash = await this.hashPassword(password);
-    const database = this.database.connection;
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      const emailToken = database
-        .prepare(
-          `SELECT user_id FROM email_tokens
-           WHERE token_hash = ? AND purpose = 'reset' AND expires_at > ?`,
-        )
-        .get(this.hashToken(token), new Date().toISOString());
+    return this.database.transaction(async (database) => {
+      const { rows: [emailToken] } = await database.query(
+        `SELECT user_id FROM email_tokens
+         WHERE token_hash = ? AND purpose = 'reset' AND expires_at > ?`,
+        [this.hashToken(token), new Date().toISOString()],
+      );
       if (!emailToken || typeof emailToken.user_id !== 'string') {
         throw new UnauthorizedException(
           'Le lien de réinitialisation est invalide ou expiré.',
         );
       }
-      database
-        .prepare('UPDATE users SET password_hash = ? WHERE id = ?')
-        .run(passwordHash, emailToken.user_id);
-      database
-        .prepare('DELETE FROM email_tokens WHERE user_id = ?')
-        .run(emailToken.user_id);
-      database
-        .prepare('DELETE FROM sessions WHERE user_id = ?')
-        .run(emailToken.user_id);
-      database.exec('COMMIT');
+      await database.query('UPDATE users SET password_hash = ? WHERE id = ?', [
+        passwordHash,
+        emailToken.user_id,
+      ]);
+      await database.query('DELETE FROM email_tokens WHERE user_id = ?', [
+        emailToken.user_id,
+      ]);
+      await database.query('DELETE FROM sessions WHERE user_id = ?', [
+        emailToken.user_id,
+      ]);
       return {
         message: 'Le mot de passe a été modifié. Connectez-vous à nouveau.',
       };
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
-  authenticate(request: Request): AuthenticatedUser {
+  async authenticate(request: Request): Promise<AuthenticatedUser> {
     const token = this.readSessionToken(request);
     if (!token)
       throw new UnauthorizedException('Une session valide est requise.');
-    const user = this.database.connection
-      .prepare(
-        `SELECT users.id, users.email
-         FROM sessions JOIN users ON users.id = sessions.user_id
-         WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-           AND users.email_verified = 1`,
-      )
-      .get(this.hashToken(token), new Date().toISOString());
+    const { rows: [user] } = await this.database.query(
+      `SELECT users.id, users.email
+       FROM sessions JOIN users ON users.id = sessions.user_id
+       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+         AND users.email_verified = 1`,
+      [this.hashToken(token), new Date().toISOString()],
+    );
     if (
       !user ||
       typeof user.id !== 'string' ||
@@ -256,12 +237,12 @@ export class AuthService {
     return { id: user.id, email: user.email };
   }
 
-  signOut(request: Request): void {
+  async signOut(request: Request): Promise<void> {
     const token = this.readSessionToken(request);
     if (token) {
-      this.database.connection
-        .prepare('DELETE FROM sessions WHERE token_hash = ?')
-        .run(this.hashToken(token));
+      await this.database.query('DELETE FROM sessions WHERE token_hash = ?', [
+        this.hashToken(token),
+      ]);
     }
   }
 
@@ -277,9 +258,10 @@ export class AuthService {
     if (typeof body.password !== 'string') {
       throw new UnauthorizedException('Le mot de passe actuel est requis.');
     }
-    const row = this.database.connection
-      .prepare('SELECT password_hash FROM users WHERE id = ?')
-      .get(user.id);
+    const { rows: [row] } = await this.database.query(
+      'SELECT password_hash FROM users WHERE id = ?',
+      [user.id],
+    );
     if (
       !row ||
       typeof row.password_hash !== 'string' ||
@@ -287,25 +269,25 @@ export class AuthService {
     ) {
       throw new UnauthorizedException('Le mot de passe actuel est incorrect.');
     }
-    this.database.connection
-      .prepare('DELETE FROM users WHERE id = ?')
-      .run(user.id);
+    await this.database.query('DELETE FROM users WHERE id = ?', [user.id]);
   }
 
-  createSession(userId: string): string {
+  async createSession(
+    userId: string,
+    database: import('./database.service.js').DatabaseExecutor = this.database,
+  ): Promise<string> {
     const token = this.newToken();
-    this.database.connection
-      .prepare('DELETE FROM sessions WHERE expires_at <= ?')
-      .run(new Date().toISOString());
-    this.database.connection
-      .prepare(
-        'INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
-      )
-      .run(
+    await database.query('DELETE FROM sessions WHERE expires_at <= ?', [
+      new Date().toISOString(),
+    ]);
+    await database.query(
+      'INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
+      [
         this.hashToken(token),
         userId,
         new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-      );
+      ],
+    );
     return token;
   }
 
@@ -345,25 +327,25 @@ export class AuthService {
     return actual.length === expected.length && actual.equals(expected);
   }
 
-  private saveEmailToken(
+  private async saveEmailToken(
     userId: string,
     token: string,
     purpose: 'verify' | 'reset',
     now: Date,
-  ): void {
-    this.database.connection
-      .prepare('DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?')
-      .run(userId, purpose);
-    this.database.connection
-      .prepare(
-        'INSERT INTO email_tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(
+  ): Promise<void> {
+    await this.database.query(
+      'DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?',
+      [userId, purpose],
+    );
+    await this.database.query(
+      'INSERT INTO email_tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, ?, ?)',
+      [
         this.hashToken(token),
         userId,
         purpose,
         new Date(now.getTime() + TOKEN_TTL_MS).toISOString(),
-      );
+      ],
+    );
   }
 
   private newToken(): string {

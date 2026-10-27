@@ -33,7 +33,7 @@ export class CreatorService {
 
   constructor(private readonly database: DatabaseService) {}
 
-  saveProfile(user: AuthenticatedUser, value: unknown) {
+  async saveProfile(user: AuthenticatedUser, value: unknown) {
     const body = this.asObject(value);
     const profile = {
       brand_name: requiredText(body, 'brandName', 120),
@@ -44,8 +44,7 @@ export class CreatorService {
       instructions: optionalText(body, 'instructions', 4000) ?? '',
       updated_at: new Date().toISOString(),
     };
-    this.database.connection
-      .prepare(
+    await this.database.query(
         `INSERT INTO brand_profiles
           (user_id, brand_name, niche, audience, tone, language, instructions, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -54,8 +53,7 @@ export class CreatorService {
           audience = excluded.audience, tone = excluded.tone,
           language = excluded.language, instructions = excluded.instructions,
           updated_at = excluded.updated_at`,
-      )
-      .run(
+        [
         user.id,
         profile.brand_name,
         profile.niche,
@@ -64,23 +62,22 @@ export class CreatorService {
         profile.language,
         profile.instructions,
         profile.updated_at,
+        ],
       );
     return this.getProfile(user);
   }
 
-  getProfile(user: AuthenticatedUser) {
-    return (
-      this.database.connection
-        .prepare(
+  async getProfile(user: AuthenticatedUser) {
+    const { rows: [profile] } = await this.database.query(
           `SELECT brand_name AS brandName, niche, audience, tone, language,
                   instructions, updated_at AS updatedAt
            FROM brand_profiles WHERE user_id = ?`,
-        )
-        .get(user.id) ?? null
-    );
+          [user.id],
+        );
+    return profile ?? null;
   }
 
-  createProject(user: AuthenticatedUser, value: unknown) {
+  async createProject(user: AuthenticatedUser, value: unknown) {
     const body = this.asObject(value);
     const project = {
       id: randomUUID(),
@@ -88,28 +85,28 @@ export class CreatorService {
       name: requiredText(body, 'name', 120),
       createdAt: new Date().toISOString(),
     };
-    this.database.connection
-      .prepare(
-        'INSERT INTO projects (id, user_id, name, created_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(project.id, project.userId, project.name, project.createdAt);
+    await this.database.query(
+      'INSERT INTO projects (id, user_id, name, created_at) VALUES (?, ?, ?, ?)',
+      [project.id, project.userId, project.name, project.createdAt],
+    );
     return { id: project.id, name: project.name, createdAt: project.createdAt };
   }
 
-  listProjects(user: AuthenticatedUser) {
-    return this.database.connection
-      .prepare(
+  async listProjects(user: AuthenticatedUser) {
+    const { rows } = await this.database.query(
         `SELECT id, name, created_at AS createdAt
          FROM projects WHERE user_id = ? ORDER BY created_at DESC`,
-      )
-      .all(user.id);
+        [user.id],
+      );
+    return rows;
   }
 
-  deleteProject(user: AuthenticatedUser, projectId: string): void {
-    const result = this.database.connection
-      .prepare('DELETE FROM projects WHERE id = ? AND user_id = ?')
-      .run(projectId, user.id);
-    if (result.changes === 0)
+  async deleteProject(user: AuthenticatedUser, projectId: string): Promise<void> {
+    const result = await this.database.query(
+      'DELETE FROM projects WHERE id = ? AND user_id = ?',
+      [projectId, user.id],
+    );
+    if (result.rowCount === 0)
       throw new NotFoundException('Projet introuvable.');
   }
 
@@ -117,7 +114,7 @@ export class CreatorService {
     const body = this.asObject(value);
     const subject = requiredText(body, 'subject', 1000);
     const format = requiredText(body, 'format', 80);
-    const usage = this.quota(user);
+    const usage = await this.quota(user);
     if (usage.remaining <= 0) {
       throw new HttpException(
         {
@@ -136,7 +133,7 @@ export class CreatorService {
       );
     }
 
-    const profile = this.getProfile(user);
+    const profile = await this.getProfile(user);
     const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
     let response: Response;
     try {
@@ -206,7 +203,7 @@ export class CreatorService {
     }
     const content = this.validateGenerated(generated, subject, format);
     const now = new Date();
-    const quota = this.quota(user);
+    const quota = await this.quota(user);
     if (quota.remaining <= 0) {
       throw new HttpException(
         {
@@ -217,19 +214,18 @@ export class CreatorService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    this.database.connection
-      .prepare(
-        'INSERT INTO generations (id, user_id, created_at) VALUES (?, ?, ?)',
-      )
-      .run(randomUUID(), user.id, now.toISOString());
-    return { content, quota: this.quota(user) };
+    await this.database.query(
+      'INSERT INTO generations (id, user_id, created_at) VALUES (?, ?, ?)',
+      [randomUUID(), user.id, now.toISOString()],
+    );
+    return { content, quota: await this.quota(user) };
   }
 
-  saveContent(user: AuthenticatedUser, value: unknown) {
+  async saveContent(user: AuthenticatedUser, value: unknown) {
     const body = this.asObject(value);
     const now = new Date().toISOString();
     const content = this.parseContentInput(body);
-    if (content.projectId) this.requireProject(user.id, content.projectId);
+    if (content.projectId) await this.requireProject(user.id, content.projectId);
     if (
       content.status === 'scheduled' &&
       (!content.scheduledAt || !content.targetPlatform)
@@ -239,14 +235,12 @@ export class CreatorService {
       );
     }
     const id = randomUUID();
-    this.database.connection
-      .prepare(
+    await this.database.query(
         `INSERT INTO contents
           (id, user_id, project_id, subject, format, hook, script, cta, captions,
            target_platform, status, scheduled_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+        [
         id,
         user.id,
         content.projectId,
@@ -261,11 +255,12 @@ export class CreatorService {
         content.scheduledAt,
         now,
         now,
+        ],
       );
     return this.findContent(user.id, id);
   }
 
-  listContent(user: AuthenticatedUser, query: Record<string, unknown>) {
+  async listContent(user: AuthenticatedUser, query: Record<string, unknown>) {
     const clauses = ['user_id = ?'];
     const parameters: (string | number | null)[] = [user.id];
     const projectId = this.queryText(query, 'projectId');
@@ -275,7 +270,7 @@ export class CreatorService {
     const to = this.queryText(query, 'to');
 
     if (projectId) {
-      this.requireProject(user.id, projectId);
+      await this.requireProject(user.id, projectId);
       clauses.push('project_id = ?');
       parameters.push(projectId);
     }
@@ -300,20 +295,19 @@ export class CreatorService {
       clauses.push('created_at <= ?');
       parameters.push(end);
     }
-    const rows = this.database.connection
-      .prepare(
+    const { rows } = await this.database.query(
         `SELECT id, project_id AS projectId, subject, format, hook, script, cta,
                 captions, target_platform AS targetPlatform, status,
                 scheduled_at AS scheduledAt, created_at AS createdAt,
                 updated_at AS updatedAt
          FROM contents WHERE ${clauses.join(' AND ')}
          ORDER BY created_at DESC LIMIT 200`,
-      )
-      .all(...parameters);
+        parameters,
+      );
     return rows.map((row) => this.presentContent(row));
   }
 
-  getCalendar(user: AuthenticatedUser, query: Record<string, unknown>) {
+  async getCalendar(user: AuthenticatedUser, query: Record<string, unknown>) {
     const from = this.queryText(query, 'from');
     const to = this.queryText(query, 'to');
     if (!from || !to) {
@@ -326,8 +320,7 @@ export class CreatorService {
     if (Date.parse(start) > Date.parse(end)) {
       throw new BadRequestException('La date from doit précéder la date to.');
     }
-    const rows = this.database.connection
-      .prepare(
+    const { rows } = await this.database.query(
         `SELECT id, project_id AS projectId, subject, format, hook, script, cta,
                 captions, target_platform AS targetPlatform, status,
                 scheduled_at AS scheduledAt, created_at AS createdAt,
@@ -336,14 +329,14 @@ export class CreatorService {
          WHERE user_id = ? AND status = 'scheduled'
            AND scheduled_at >= ? AND scheduled_at <= ?
          ORDER BY scheduled_at ASC LIMIT 500`,
-      )
-      .all(user.id, start, end);
+        [user.id, start, end],
+      );
     return rows.map((row) => this.presentContent(row));
   }
 
-  updateContent(user: AuthenticatedUser, id: string, value: unknown) {
+  async updateContent(user: AuthenticatedUser, id: string, value: unknown) {
     const body = this.asObject(value);
-    const existing = this.findContent(user.id, id);
+    const existing = await this.findContent(user.id, id);
     const next = {
       subject:
         body.subject === undefined
@@ -382,7 +375,7 @@ export class CreatorService {
           ? existing.scheduledAt
           : optionalText(body, 'scheduledAt', 40),
     };
-    if (next.projectId) this.requireProject(user.id, next.projectId);
+    if (next.projectId) await this.requireProject(user.id, next.projectId);
     if (next.scheduledAt) {
       next.scheduledAt = this.requireDate(next.scheduledAt);
     }
@@ -394,13 +387,11 @@ export class CreatorService {
         'Un contenu planifié exige une date et une plateforme cible.',
       );
     }
-    this.database.connection
-      .prepare(
+    await this.database.query(
         `UPDATE contents SET project_id = ?, subject = ?, format = ?, hook = ?,
           script = ?, cta = ?, captions = ?, target_platform = ?, status = ?,
           scheduled_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      )
-      .run(
+        [
         next.projectId,
         next.subject,
         next.format,
@@ -414,22 +405,25 @@ export class CreatorService {
         new Date().toISOString(),
         id,
         user.id,
+        ],
       );
     return this.findContent(user.id, id);
   }
 
-  deleteContent(user: AuthenticatedUser, id: string): void {
-    const result = this.database.connection
-      .prepare('DELETE FROM contents WHERE id = ? AND user_id = ?')
-      .run(id, user.id);
-    if (result.changes === 0)
+  async deleteContent(user: AuthenticatedUser, id: string): Promise<void> {
+    const result = await this.database.query(
+      'DELETE FROM contents WHERE id = ? AND user_id = ?',
+      [id, user.id],
+    );
+    if (result.rowCount === 0)
       throw new NotFoundException('Contenu introuvable.');
   }
 
-  quota(user: AuthenticatedUser) {
-    const subscription = this.database.connection
-      .prepare('SELECT status FROM subscriptions WHERE user_id = ?')
-      .get(user.id);
+  async quota(user: AuthenticatedUser) {
+    const { rows: [subscription] } = await this.database.query(
+      'SELECT status FROM subscriptions WHERE user_id = ?',
+      [user.id],
+    );
     const subscribed =
       subscription?.status === 'active' || subscription?.status === 'trialing';
     const configuredLimit = Number(
@@ -448,12 +442,11 @@ export class CreatorService {
     const monthStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
     ).toISOString();
-    const usedRow = this.database.connection
-      .prepare(
+    const { rows: [usedRow] } = await this.database.query(
         'SELECT COUNT(*) AS used FROM generations WHERE user_id = ? AND created_at >= ?',
-      )
-      .get(user.id, monthStart);
-    const used = typeof usedRow?.used === 'number' ? usedRow.used : 0;
+        [user.id, monthStart],
+      );
+    const used = Number(usedRow?.used ?? 0);
     return {
       used,
       limit: configuredLimit,
@@ -590,23 +583,26 @@ export class CreatorService {
     return value;
   }
 
-  private requireProject(userId: string, projectId: string): void {
-    const project = this.database.connection
-      .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-      .get(projectId, userId);
+  private async requireProject(
+    userId: string,
+    projectId: string,
+  ): Promise<void> {
+    const { rows: [project] } = await this.database.query(
+      'SELECT id FROM projects WHERE id = ? AND user_id = ?',
+      [projectId, userId],
+    );
     if (!project) throw new NotFoundException('Projet introuvable.');
   }
 
-  private findContent(userId: string, id: string) {
-    const row = this.database.connection
-      .prepare(
+  private async findContent(userId: string, id: string) {
+    const { rows: [row] } = await this.database.query(
         `SELECT id, project_id AS projectId, subject, format, hook, script, cta,
                 captions, target_platform AS targetPlatform, status,
                 scheduled_at AS scheduledAt, created_at AS createdAt,
                 updated_at AS updatedAt
          FROM contents WHERE id = ? AND user_id = ?`,
-      )
-      .get(id, userId);
+        [id, userId],
+      );
     if (!row) throw new NotFoundException('Contenu introuvable.');
     return this.presentContent(row);
   }

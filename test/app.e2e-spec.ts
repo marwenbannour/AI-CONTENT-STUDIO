@@ -8,12 +8,14 @@ describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
   const savedEnvironment = {
     DATABASE_PATH: process.env.DATABASE_PATH,
+    DATABASE_URL: process.env.DATABASE_URL,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
   };
 
   beforeEach(async () => {
     process.env.DATABASE_PATH = ':memory:';
+    process.env.DATABASE_URL = '';
     process.env.RESEND_API_KEY = 'test-key';
     process.env.EMAIL_FROM = 'test@example.com';
     const moduleFixture: TestingModule = await Test.createTestingModule({

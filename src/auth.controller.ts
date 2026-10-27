@@ -62,11 +62,11 @@ export class AuthController {
 
   @Post('auth/logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  signOut(
+  async signOut(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
-  ): void {
-    this.authService.signOut(request);
+  ): Promise<void> {
+    await this.authService.signOut(request);
     response.setHeader(
       'Set-Cookie',
       `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
@@ -85,8 +85,8 @@ export class AuthController {
   }
 
   @Get('auth/me')
-  me(@Req() request: Request) {
-    return { user: this.authService.authenticate(request) };
+  async me(@Req() request: Request) {
+    return { user: await this.authService.authenticate(request) };
   }
 
   @Delete('account')
@@ -96,7 +96,7 @@ export class AuthController {
     @Body() value: unknown,
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
-    const user = this.authService.authenticate(request);
+    const user = await this.authService.authenticate(request);
     await this.authService.deleteAccount(user, bodyObject(value));
     response.setHeader(
       'Set-Cookie',

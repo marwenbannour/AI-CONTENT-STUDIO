@@ -6,7 +6,8 @@ abonnements.
 
 ## Prérequis et démarrage
 
-Node.js 24 ou supérieur est requis (la persistance utilise `node:sqlite`).
+Node.js 24 ou supérieur est requis. En local, l’application utilise SQLite via
+`node:sqlite` ; quand `DATABASE_URL` est défini, elle utilise PostgreSQL.
 
 ```powershell
 npm install
@@ -16,8 +17,8 @@ npm run start:dev
 
 L’application web et l’API sont servies sur le même port (`3000` par défaut) ;
 ouvrir `http://localhost:3000`. La base SQLite est créée au premier démarrage.
-En production, utiliser un volume persistant et sauvegardé, HTTPS, un
-gestionnaire de secrets et une stratégie de sauvegarde/restauration adaptée.
+En production, utiliser PostgreSQL managé, HTTPS, un gestionnaire de secrets et
+une stratégie de sauvegarde/restauration adaptée.
 
 ## Configuration
 
@@ -25,6 +26,7 @@ gestionnaire de secrets et une stratégie de sauvegarde/restauration adaptée.
 | --- | --- | --- |
 | `PORT` | démarrage | `3000` |
 | `DATABASE_PATH` | démarrage | `./data/app.sqlite` |
+| `DATABASE_URL` | persistance PostgreSQL | URL PostgreSQL TLS ; lorsqu’elle est définie, elle remplace SQLite |
 | `CORS_ORIGINS` | API appelée depuis une autre origine | Origines séparées par des virgules ; par défaut `http://localhost:8081,http://127.0.0.1:8081` pour Expo Web en développement |
 | `RESEND_API_KEY` | inscription et récupération | Clé API Resend |
 | `EMAIL_FROM` | inscription et récupération | Adresse d’expédition validée chez Resend |
@@ -44,37 +46,44 @@ paiement. Les idées et le profil de marque sont envoyés au fournisseur IA
 configuré. Configurez les fournisseurs et informez vos utilisateurs avant la
 mise en production.
 
-## Déploiement de staging sur Render
+## Déploiement de staging sur Vercel
 
-Le fichier `render.yaml` configure un service Web Node.js 24 en région
-Frankfurt, avec déploiement automatique de `main` et un disque persistant
-monté sur `/var/data` pour la base SQLite. Le disque nécessite une instance
-Render payante ; ne remplacez pas ce stockage par le système de fichiers
-éphémère d’une instance gratuite.
+Le fichier `vercel.json` configure une fonction Node.js qui sert NestJS et les
+fichiers Web. Le handler réutilise l’application NestJS entre les invocations
+chaudes, et le middleware du corps brut est conservé pour vérifier les
+webhooks Stripe. Les fonctions Vercel ont un système de fichiers éphémère :
+configurez PostgreSQL et `DATABASE_URL` ; n’utilisez pas SQLite sur Vercel.
 
-Pour créer le staging, connectez le dépôt GitHub à Render avec **New +
-Blueprint**, puis sélectionnez le dépôt. Après la création, renseignez dans
-les variables d’environnement Render :
+1. Créez une base PostgreSQL managée, par exemple sur Neon, et copiez son URL
+   TLS dans les variables du projet Vercel sous le nom `DATABASE_URL`.
+2. Importez le dépôt GitHub `AI-CONTENT-STUDIO` dans Vercel. Gardez le
+   répertoire racine à la racine du dépôt ; le build utilise
+   `npm run vercel-build`.
+3. Configurez dans **Project Settings > Environment Variables**, pour
+   l’environnement Preview/staging :
+   - `DATABASE_URL` : URL PostgreSQL TLS de staging.
+   - `APP_BASE_URL` : URL HTTPS Vercel attribuée au déploiement.
+   - `CORS_ORIGINS` : origines Web/Expo Web autorisées, séparées par des
+     virgules ; ne renseignez que les origines réellement utilisées.
+   - `RESEND_API_KEY` et `EMAIL_FROM` : identifiants et expéditeur de test
+     Resend.
+   - `OPENAI_API_KEY` : clé dédiée au staging.
+   - `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` et `STRIPE_WEBHOOK_SECRET` :
+     identifiants Stripe en mode test.
+4. Configurez dans Stripe un webhook vers
+   `https://<URL-DU-SERVICE>/billing/webhook` pour
+   `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated` et `customer.subscription.deleted`.
+   Enregistrez le secret de signature fourni dans `STRIPE_WEBHOOK_SECRET`.
+5. Redéployez après configuration, puis vérifiez la page `/`, l’inscription
+   Resend, la génération IA et checkout/webhook Stripe en mode test.
 
-- `APP_BASE_URL` : URL HTTPS attribuée au service, par exemple
-  `https://ai-content-studio-staging.onrender.com`.
-- `CORS_ORIGINS` : origines Web/Expo Web autorisées, séparées par des virgules ;
-  ne renseignez que les origines réellement utilisées.
-- `RESEND_API_KEY` et `EMAIL_FROM` : projet et expéditeur de test Resend.
-- `OPENAI_API_KEY` : clé de génération dédiée au staging.
-- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` et `STRIPE_WEBHOOK_SECRET` :
-  identifiants Stripe en mode test. Configurez l’URL du webhook Stripe sur
-  `https://<URL-DU-SERVICE>/billing/webhook` et abonnez-le aux événements
-  `checkout.session.completed`, `customer.subscription.created`,
-  `customer.subscription.updated` et `customer.subscription.deleted`.
-
-Les valeurs déclarées avec `sync: false` sont saisies directement dans Render ;
-ne les ajoutez jamais au dépôt. Une fois les variables configurées, déclenchez
-un déploiement, vérifiez l’URL de santé `/`, puis testez l’inscription par
-email, la génération IA et le checkout Stripe en mode test. Configurez aussi
-une sauvegarde hors instance du fichier SQLite avant d’utiliser des données
-importantes : le disque persistant protège des redémarrages, mais ne remplace
-pas une stratégie de sauvegarde.
+Les clés se configurent directement dans Vercel et Stripe : ne les commitez
+pas et ne les partagez pas dans le chat. Les migrations de schéma sont créées
+au démarrage via des `CREATE TABLE IF NOT EXISTS`. Cette migration ne copie pas
+les données d’une base SQLite existante ; le nouveau staging démarre avec une
+base PostgreSQL vide. Configurez les sauvegardes PostgreSQL avant d’y mettre
+des données importantes.
 
 ## Interface web
 

@@ -20,27 +20,29 @@ describe('CreatorService', () => {
   };
   const savedEnvironment = {
     DATABASE_PATH: process.env.DATABASE_PATH,
+    DATABASE_URL: process.env.DATABASE_URL,
     MONTHLY_GENERATION_LIMIT: process.env.MONTHLY_GENERATION_LIMIT,
     PAID_MONTHLY_GENERATION_LIMIT: process.env.PAID_MONTHLY_GENERATION_LIMIT,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    process.env.DATABASE_URL = '';
     process.env.DATABASE_PATH = ':memory:';
     database = new DatabaseService();
+    await database.onModuleInit();
     service = new CreatorService(database);
     for (const account of [user, otherUser]) {
-      database.connection
-        .prepare(
-          `INSERT INTO users (id, email, password_hash, email_verified, created_at)
-           VALUES (?, ?, 'test-hash', 1, ?)`,
-        )
-        .run(account.id, account.email, new Date().toISOString());
+      await database.query(
+        `INSERT INTO users (id, email, password_hash, email_verified, created_at)
+         VALUES (?, ?, 'test-hash', 1, ?)`,
+        [account.id, account.email, new Date().toISOString()],
+      );
     }
   });
 
-  afterEach(() => {
-    database.onModuleDestroy();
+  afterEach(async () => {
+    await database.onModuleDestroy();
     for (const [key, value] of Object.entries(savedEnvironment)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -49,7 +51,7 @@ describe('CreatorService', () => {
   });
 
   it('saves and reuses brand profile instructions on later generations', async () => {
-    service.saveProfile(user, {
+    await service.saveProfile(user, {
       brandName: 'Atelier Nord',
       niche: 'Décoration',
       audience: 'Locataires urbains',
@@ -111,7 +113,10 @@ describe('CreatorService', () => {
     await expect(
       service.generate(user, { subject: 'Un sujet', format: 'vidéo' }),
     ).rejects.toMatchObject({ status: 503 });
-    expect(service.quota(user)).toMatchObject({ used: 0, remaining: 1 });
+    expect(await service.quota(user)).toMatchObject({
+      used: 0,
+      remaining: 1,
+    });
   });
 
   it('enforces quota only after a successful provider response', async () => {
@@ -144,12 +149,15 @@ describe('CreatorService', () => {
     await expect(
       service.generate(user, { subject: 'Autre sujet', format: 'vidéo' }),
     ).rejects.toBeInstanceOf(HttpException);
-    expect(service.quota(user)).toMatchObject({ used: 1, remaining: 0 });
+    expect(await service.quota(user)).toMatchObject({
+      used: 1,
+      remaining: 0,
+    });
   });
 
-  it('keeps content and project access scoped to their owner', () => {
-    const project = service.createProject(user, { name: 'Lancement' });
-    const content = service.saveContent(user, {
+  it('keeps content and project access scoped to their owner', async () => {
+    const project = await service.createProject(user, { name: 'Lancement' });
+    const content = await service.saveContent(user, {
       projectId: project.id,
       subject: 'Première idée',
       format: 'reel',
@@ -162,24 +170,24 @@ describe('CreatorService', () => {
       scheduledAt: '2026-10-28T10:00:00Z',
     });
 
-    expect(() =>
+    await expect(
       service.listContent(otherUser, { projectId: project.id }),
-    ).toThrow(NotFoundException);
-    expect(() => service.deleteContent(otherUser, content.id)).toThrow(
-      NotFoundException,
-    );
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.deleteContent(otherUser, content.id),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(
-      service.getCalendar(user, {
+      await service.getCalendar(user, {
         from: '2026-10-28T00:00:00Z',
         to: '2026-10-28T23:59:59Z',
       }),
     ).toHaveLength(1);
     expect(
-      service.updateContent(user, content.id, {
+      (await service.updateContent(user, content.id, {
         scheduledAt: '2026-10-29T10:00:00.1Z',
-      }).scheduledAt,
+      })).scheduledAt,
     ).toBe('2026-10-29T10:00:00.100Z');
-    expect(() =>
+    await expect(
       service.saveContent(user, {
         subject: 'Date invalide',
         format: 'reel',
@@ -191,6 +199,6 @@ describe('CreatorService', () => {
         status: 'scheduled',
         scheduledAt: '2026-02-31T10:00:00Z',
       }),
-    ).toThrow(BadRequestException);
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { DatabaseService } from './database.service.js';
+import { DatabaseExecutor, DatabaseService } from './database.service.js';
 import { AuthenticatedUser } from './auth.service.js';
 
 @Injectable()
@@ -45,9 +45,10 @@ export class BillingService {
   async createPortal(user: AuthenticatedUser) {
     const secret = process.env.STRIPE_SECRET_KEY;
     const baseUrl = process.env.APP_BASE_URL;
-    const subscription = this.database.connection
-      .prepare('SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?')
-      .get(user.id);
+    const { rows: [subscription] } = await this.database.query(
+      'SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?',
+      [user.id],
+    );
     if (typeof subscription?.stripe_customer_id !== 'string') {
       throw new BadRequestException('Aucun abonnement à gérer pour ce compte.');
     }
@@ -72,17 +73,16 @@ export class BillingService {
     return { portalUrl: result.url };
   }
 
-  subscription(user: AuthenticatedUser) {
-    const subscription = this.database.connection
-      .prepare(
+  async subscription(user: AuthenticatedUser) {
+    const { rows: [subscription] } = await this.database.query(
         `SELECT status, current_period_end AS currentPeriodEnd
          FROM subscriptions WHERE user_id = ?`,
-      )
-      .get(user.id);
+        [user.id],
+      );
     return subscription ?? { status: 'none', currentPeriodEnd: null };
   }
 
-  handleWebhook(rawBody: Buffer | undefined, signature: string | undefined) {
+  async handleWebhook(rawBody: Buffer | undefined, signature: string | undefined) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
       throw new ServiceUnavailableException(
@@ -117,50 +117,49 @@ export class BillingService {
         'Le webhook ne contient pas les champs requis.',
       );
     }
+    const eventId = event.id;
+    const eventType = event.type;
+    const eventCreated = event.created;
 
-    const database = this.database.connection;
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      const inserted = database
-        .prepare(
-          'INSERT OR IGNORE INTO stripe_events (event_id, received_at) VALUES (?, ?)',
-        )
-        .run(event.id, new Date().toISOString());
-      if (inserted.changes === 0) {
-        database.exec('COMMIT');
+    return this.database.transaction(async (database) => {
+      const inserted = await database.query(
+        'INSERT INTO stripe_events (event_id, received_at) VALUES (?, ?) ON CONFLICT (event_id) DO NOTHING',
+        [eventId, new Date().toISOString()],
+      );
+      if (inserted.rowCount === 0) {
         return { received: true, duplicate: true };
       }
 
       const data = this.isObject(event.data) ? event.data : null;
       const object = data && this.isObject(data.object) ? data.object : null;
-      if (object && event.type === 'checkout.session.completed') {
-        this.processCheckoutCompleted(database, object, event.created);
-      } else if (
-        object &&
-        (event.type === 'customer.subscription.created' ||
-          event.type === 'customer.subscription.updated' ||
-          event.type === 'customer.subscription.deleted')
-      ) {
-        this.processSubscriptionUpdate(
+      if (object && eventType === 'checkout.session.completed') {
+        await this.processCheckoutCompleted(
           database,
           object,
-          event.type,
-          event.created,
+          eventCreated,
+        );
+      } else if (
+        object &&
+        (eventType === 'customer.subscription.created' ||
+          eventType === 'customer.subscription.updated' ||
+          eventType === 'customer.subscription.deleted')
+      ) {
+        await this.processSubscriptionUpdate(
+          database,
+          object,
+          eventType,
+          eventCreated,
         );
       }
-      database.exec('COMMIT');
       return { received: true, duplicate: false };
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
-  private processCheckoutCompleted(
-    database: DatabaseService['connection'],
+  private async processCheckoutCompleted(
+    database: DatabaseExecutor,
     object: Record<string, unknown>,
     eventCreated: number,
-  ): void {
+  ): Promise<void> {
     const userId =
       typeof object.client_reference_id === 'string'
         ? object.client_reference_id
@@ -172,19 +171,18 @@ export class BillingService {
         'La session de paiement ne contient pas les identifiants attendus.',
       );
     }
-    const existing = database
-      .prepare(
+    const { rows: [existing] } = await database.query(
         `SELECT stripe_subscription_id, status, current_period_end
          FROM subscriptions WHERE user_id = ?`,
-      )
-      .get(userId);
+        [userId],
+      );
     const alreadySynchronized =
       existing?.stripe_subscription_id === subscriptionId &&
       typeof existing.status === 'string' &&
       ['active', 'trialing', 'past_due', 'unpaid', 'canceled'].includes(
         existing.status,
       );
-    this.saveSubscription(database, {
+    await this.saveSubscription(database, {
       userId,
       customerId,
       subscriptionId,
@@ -200,21 +198,20 @@ export class BillingService {
     });
   }
 
-  private processSubscriptionUpdate(
-    database: DatabaseService['connection'],
+  private async processSubscriptionUpdate(
+    database: DatabaseExecutor,
     object: Record<string, unknown>,
     eventType: string,
     eventCreated: number,
-  ): void {
+  ): Promise<void> {
     const customerId = this.stripeId(object.customer);
     const subscriptionId = this.stripeId(object.id);
-    const subscriptionRow = customerId
-      ? database
-          .prepare(
-            'SELECT user_id FROM subscriptions WHERE stripe_customer_id = ?',
-          )
-          .get(customerId)
-      : undefined;
+    const { rows: [subscriptionRow] } = customerId
+      ? await database.query(
+          'SELECT user_id FROM subscriptions WHERE stripe_customer_id = ?',
+          [customerId],
+        )
+      : { rows: [] };
     const userId =
       this.metadataUserId(object.metadata) ??
       (typeof subscriptionRow?.user_id === 'string'
@@ -253,7 +250,7 @@ export class BillingService {
       Number.isFinite(object.current_period_end)
         ? new Date(object.current_period_end * 1000).toISOString()
         : null;
-    this.saveSubscription(database, {
+    await this.saveSubscription(database, {
       userId,
       customerId,
       subscriptionId,
@@ -263,8 +260,8 @@ export class BillingService {
     });
   }
 
-  private saveSubscription(
-    database: DatabaseService['connection'],
+  private async saveSubscription(
+    database: DatabaseExecutor,
     subscription: {
       userId: string;
       customerId: string;
@@ -273,17 +270,17 @@ export class BillingService {
       currentPeriodEnd: string | null;
       eventCreated: number;
     },
-  ): void {
-    const user = database
-      .prepare('SELECT id FROM users WHERE id = ?')
-      .get(subscription.userId);
+  ): Promise<void> {
+    const { rows: [user] } = await database.query(
+      'SELECT id FROM users WHERE id = ?',
+      [subscription.userId],
+    );
     if (!user) {
       throw new BadRequestException(
         'L’abonnement reçu ne correspond à aucun compte actif.',
       );
     }
-    database
-      .prepare(
+    await database.query(
         `INSERT INTO subscriptions
           (user_id, stripe_customer_id, stripe_subscription_id, status,
            current_period_end, last_event_created)
@@ -295,14 +292,14 @@ export class BillingService {
           current_period_end = excluded.current_period_end,
           last_event_created = excluded.last_event_created
          WHERE excluded.last_event_created >= subscriptions.last_event_created`,
-      )
-      .run(
+        [
         subscription.userId,
         subscription.customerId,
         subscription.subscriptionId,
         subscription.status,
         subscription.currentPeriodEnd,
         subscription.eventCreated,
+        ],
       );
   }
 

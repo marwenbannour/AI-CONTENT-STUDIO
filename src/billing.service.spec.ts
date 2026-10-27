@@ -15,31 +15,33 @@ describe('BillingService webhooks', () => {
   let service: BillingService;
   const savedEnvironment = {
     DATABASE_PATH: process.env.DATABASE_PATH,
+    DATABASE_URL: process.env.DATABASE_URL,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    process.env.DATABASE_URL = '';
     process.env.DATABASE_PATH = ':memory:';
     process.env.STRIPE_WEBHOOK_SECRET = 'test-webhook-secret';
     database = new DatabaseService();
     service = new BillingService(database);
-    database.connection
-      .prepare(
+    await database.onModuleInit();
+    await database.query(
         `INSERT INTO users (id, email, password_hash, email_verified, created_at)
          VALUES ('user-1', 'user@example.com', 'test-hash', 1, ?)`,
-      )
-      .run(new Date().toISOString());
+        [new Date().toISOString()],
+      );
   });
 
-  afterEach(() => {
-    database.onModuleDestroy();
+  afterEach(async () => {
+    await database.onModuleDestroy();
     for (const [key, value] of Object.entries(savedEnvironment)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
   });
 
-  it('verifies signatures, synchronizes status, and processes an event once', () => {
+  it('verifies signatures, synchronizes status, and processes an event once', async () => {
     const rawBody = Buffer.from(
       JSON.stringify({
         id: 'evt_subscription_1',
@@ -58,30 +60,29 @@ describe('BillingService webhooks', () => {
     );
     const header = signedHeader(rawBody);
 
-    expect(service.handleWebhook(rawBody, header)).toEqual({
+    expect(await service.handleWebhook(rawBody, header)).toEqual({
       received: true,
       duplicate: false,
     });
-    expect(service.handleWebhook(rawBody, header)).toEqual({
+    expect(await service.handleWebhook(rawBody, header)).toEqual({
       received: true,
       duplicate: true,
     });
     expect(
-      service.subscription({ id: 'user-1', email: 'user@example.com' }),
+      await service.subscription({ id: 'user-1', email: 'user@example.com' }),
     ).toMatchObject({
       status: 'active',
       currentPeriodEnd: new Date(1_798_000_000 * 1000).toISOString(),
     });
     expect(
-      database.connection
-        .prepare(
+      (await database.query(
           'SELECT COUNT(*) AS count FROM stripe_events WHERE event_id = ?',
-        )
-        .get('evt_subscription_1')?.count,
+          ['evt_subscription_1'],
+        )).rows[0]?.count,
     ).toBe(1);
   });
 
-  it('does not overwrite a newer active subscription with a late event', () => {
+  it('does not overwrite a newer active subscription with a late event', async () => {
     const event = {
       id: 'evt_late',
       created: 1_797_999_999,
@@ -109,15 +110,15 @@ describe('BillingService webhooks', () => {
     };
     const currentBody = Buffer.from(JSON.stringify(currentEvent));
 
-    service.handleWebhook(currentBody, signedHeader(currentBody));
-    service.handleWebhook(rawBody, signedHeader(rawBody));
+    await service.handleWebhook(currentBody, signedHeader(currentBody));
+    await service.handleWebhook(rawBody, signedHeader(rawBody));
 
     expect(
-      service.subscription({ id: 'user-1', email: 'user@example.com' }),
+      await service.subscription({ id: 'user-1', email: 'user@example.com' }),
     ).toMatchObject({ status: 'active' });
   });
 
-  it('rejects invalid signatures without recording the event', () => {
+  it('rejects invalid signatures without recording the event', async () => {
     const rawBody = Buffer.from(
       JSON.stringify({
         id: 'evt_invalid',
@@ -126,11 +127,12 @@ describe('BillingService webhooks', () => {
       }),
     );
 
-    expect(() => service.handleWebhook(rawBody, 't=1,v1=invalid')).toThrow();
+    await expect(
+      service.handleWebhook(rawBody, 't=1,v1=invalid'),
+    ).rejects.toThrow();
     expect(
-      database.connection
-        .prepare('SELECT COUNT(*) AS count FROM stripe_events')
-        .get()?.count,
+      (await database.query('SELECT COUNT(*) AS count FROM stripe_events')).rows[0]
+        ?.count,
     ).toBe(0);
   });
 });

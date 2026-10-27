@@ -12,28 +12,28 @@ export class BillingController {
   ) {}
 
   @Post('checkout')
-  createCheckout(@Req() request: Request) {
+  async createCheckout(@Req() request: Request) {
     return this.billingService.createCheckout(
-      this.authService.authenticate(request),
+      await this.authService.authenticate(request),
     );
   }
 
   @Get('subscription')
-  subscription(@Req() request: Request) {
+  async subscription(@Req() request: Request) {
     return this.billingService.subscription(
-      this.authService.authenticate(request),
+      await this.authService.authenticate(request),
     );
   }
 
   @Post('portal')
-  createPortal(@Req() request: Request) {
+  async createPortal(@Req() request: Request) {
     return this.billingService.createPortal(
-      this.authService.authenticate(request),
+      await this.authService.authenticate(request),
     );
   }
 
   @Post('webhook')
-  webhook(
+  async webhook(
     @Req() request: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature?: string,
   ) {
